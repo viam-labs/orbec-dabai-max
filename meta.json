@@ -1,0 +1,24 @@
+{
+  "$schema": "https://dl.viam.dev/module.schema.json",
+  "module_id": "viam-labs:dabai-max",
+  "visibility": "private",
+  "url": "https://github.com/viam-labs/orbec-dabai-max",
+  "description": "Orbbec DaBai Max depth camera: infrared, depth, and point clouds over OpenNI 2.",
+  "models": [
+    {
+      "api": "rdk:component:camera",
+      "model": "viam-labs:camera:dabai-max",
+      "short_description": "Depth and infrared from an Orbbec DaBai Max.",
+      "markdown_link": "README.md#model-viam-labscameradabai-max"
+    }
+  ],
+  "markdown_link": "README.md",
+  "entrypoint": "run.sh",
+  "first_run": "setup.sh",
+  "build": {
+    "setup": "./build-setup.sh",
+    "build": "./build.sh",
+    "path": "dist/archive.tar.gz",
+    "arch": ["linux/amd64", "linux/arm64"]
+  }
+}
