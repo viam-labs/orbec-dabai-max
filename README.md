@@ -10,34 +10,27 @@ Depth-to-color alignment is not supported on this camera. The module does not tr
 
 Default streams match Orbbec's DaBai Max profile: infrared at 640×400 and depth at 640×320, both at 10 fps. The working range filter is 0.2 m to 2.5 m.
 
-```json
-{
-  "sensors": ["ir", "depth"],
-  "width": 640,
-  "height": 320,
-  "fps": 10
-}
-```
+No camera attributes are required. The module opens infrared and depth, and builds the point cloud from depth.
 
-`get_images` source names:
+`get_images` source names, in the order they are returned:
 
-| Source | MIME type | When |
+| Source | MIME type | Picture |
 | --- | --- | --- |
-| `ir` | `image/jpeg` | `"ir"` is in `sensors` |
-| `depth` | `image/vnd.viam.dep` | `"depth"` is in `sensors` |
-| `color` | `image/jpeg` | `"color"` is in `sensors` and the device exposes an OpenNI color sensor |
+| `color` | `image/jpeg` | False-color depth. Near is warm and far is cool. This is the image the control tab shows. |
+| `ir` | `image/jpeg` | Grayscale infrared camera. |
+| `depth` | `image/vnd.viam.dep` | Raw depth in millimeters. |
 
-The first entry in `sensors` is the image shown in the Viam control tab. Point clouds are in millimeters, in a camera frame where +X is right, +Y is down, and +Z is forward.
+The DaBai Max (`2bc5:069a`) has no RGB sensor. `color` is a rendering of the depth map, not a color camera.
+
+Point clouds use a camera frame where +X is right, +Y is down, and +Z is forward. Distances are millimeters inside Viam.
 
 | Attribute | Type | Default | Description |
 | --- | --- | --- | --- |
-| `sensors` | array of `ir`, `depth`, `color` | `["ir", "depth"]` | Streams to open. |
 | `serial_number` | string | | Open this camera when more than one OpenNI device is connected. |
 | `device_uri` | string | | OpenNI device URI. Overrides `serial_number`. |
 | `openni2_redist` | string | `$OPENNI2_REDIST` | Directory that contains `libOpenNI2.so` and `OpenNI2/Drivers`. |
 | `width`, `height`, `fps` | int | `640`, `320`, `10` | Requested depth mode. The nearest mode the camera reports is used. |
 | `ir_width`, `ir_height`, `ir_fps` | int | `640`, `400`, `10` | Requested infrared mode. |
-| `color_width`, `color_height`, `color_fps` | int | `640`, `480`, `10` | Requested color mode, only if `color` is enabled. |
 | `min_depth_mm`, `max_depth_mm` | int | `200`, `2500` | Point-cloud range filter. `0` disables that side of the filter. |
 | `point_cloud_stride` | int | `1` | Sample every Nth depth pixel when building a point cloud. |
 

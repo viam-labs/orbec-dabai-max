@@ -15,6 +15,7 @@ from frames import (  # noqa: E402
     choose_video_mode,
     depth_frame_to_mm,
     depth_to_points,
+    depth_to_color_jpeg,
     encode_depth_map,
     encode_pcd,
     intrinsics_from_fov,
@@ -26,16 +27,13 @@ from openni2 import OniFrame, library_candidates  # noqa: E402
 
 def test_parse_defaults_match_dabai_max_depth():
     config = parse_attributes({})
-    assert config.sensors == ("ir", "depth")
     assert (config.width, config.height, config.fps) == (640, 320, 10)
     assert (config.ir_width, config.ir_height, config.ir_fps) == (640, 400, 10)
     assert config.min_depth_mm == 200
     assert config.max_depth_mm == 2500
 
 
-def test_parse_rejects_unknown_sensor_and_inverted_range():
-    with pytest.raises(ValueError, match="unsupported sensors"):
-        parse_attributes({"sensors": ["rgb"]})
+def test_parse_rejects_inverted_range():
     with pytest.raises(ValueError, match="min_depth_mm"):
         parse_attributes({"min_depth_mm": 2000, "max_depth_mm": 100})
 
@@ -67,6 +65,22 @@ def test_depth_encoding_round_trip_is_big_endian():
     np.testing.assert_array_equal(pixels, depth)
 
 
+def test_depth_color_jpeg_is_warm_near_and_black_when_missing():
+    from PIL import Image
+
+    depth = np.zeros((16, 48), dtype=np.uint16)
+    depth[:, 16:32] = 200
+    depth[:, 32:48] = 2000
+    encoded = depth_to_color_jpeg(depth)
+    assert encoded[:2] == b"\xff\xd8"
+    image = np.asarray(Image.open(__import__("io").BytesIO(encoded)))
+    assert image[8, 4].tolist() == [0, 0, 0]
+    near = image[8, 20].astype(int)
+    far = image[8, 36].astype(int)
+    assert near[0] > far[0]
+    assert far[2] > near[2]
+
+
 def test_depth_100_um_converts_to_millimeters():
     raw = np.array([[10000, 25000]], dtype="<u2").tobytes()
     depth = depth_frame_to_mm(raw, 2, 1, 4, DEPTH_100_UM)
@@ -96,13 +110,15 @@ def test_point_cloud_uses_optical_frame_and_drops_out_of_range_pixels():
     np.testing.assert_allclose(points, expected)
 
 
-def test_pcd_header_counts_points():
-    points = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
+def test_pcd_stores_meters_for_viam():
+    points = np.array([[1000, 2000, 3000], [0, 0, 500]], dtype=np.float32)
     encoded = encode_pcd(points)
     header, _, payload = encoded.partition(b"DATA binary\n")
+    assert b"VERSION .7\n" in header
     assert b"POINTS 2" in header
     assert b"WIDTH 2" in header
-    assert len(payload) == 2 * 3 * 4
+    decoded = np.frombuffer(payload, dtype="<f4").reshape(2, 3)
+    np.testing.assert_allclose(decoded, np.array([[1, 2, 3], [0, 0, 0.5]], dtype=np.float32))
 
 
 def test_intrinsics_accept_radians_or_degrees():

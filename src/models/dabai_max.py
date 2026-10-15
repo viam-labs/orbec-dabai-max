@@ -11,21 +11,21 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from typing_extensions import Self
 
 from frames import (
-    COLOR_FORMATS,
     DEPTH_FORMATS,
     IR_FORMATS,
     choose_video_mode,
-    color_frame_to_jpeg,
     depth_frame_to_mm,
+    depth_to_color_jpeg,
     depth_to_points,
     describe_modes,
+    depth_to_color_jpeg,
     encode_depth_map,
     encode_pcd,
     intrinsics_from_fov,
     ir_frame_to_jpeg,
     parse_attributes,
 )
-from openni2 import SENSOR_COLOR, SENSOR_DEPTH, SENSOR_IR, OpenNI2
+from openni2 import SENSOR_DEPTH, SENSOR_IR, OpenNI2
 from viam.components.camera import Camera, IntrinsicParameters
 from viam.media.video import CameraMimeType, NamedImage
 from viam.proto.app.robot import ComponentConfig
@@ -35,8 +35,8 @@ from viam.resource.easy_resource import EasyResource
 from viam.resource.types import Model, ModelFamily
 from viam.utils import ValueTypes, struct_to_dict
 
-_SENSOR_TYPES = {"depth": SENSOR_DEPTH, "ir": SENSOR_IR, "color": SENSOR_COLOR}
-_PREFERRED_FORMATS = {"depth": DEPTH_FORMATS, "ir": IR_FORMATS, "color": COLOR_FORMATS}
+_SENSOR_TYPES = {"depth": SENSOR_DEPTH, "ir": SENSOR_IR}
+_PREFERRED_FORMATS = {"depth": DEPTH_FORMATS, "ir": IR_FORMATS}
 
 
 class DabaiMax(Camera, EasyResource):
@@ -50,6 +50,7 @@ class DabaiMax(Camera, EasyResource):
         self._device_lock = threading.Lock()
         self._camera: OpenNI2 | None = None
         self._config = parse_attributes({})
+        self._streams: tuple[str, ...] = ()
         self._intrinsics: tuple[float, float, float, float] | None = None
         self._depth_shape: tuple[int, int] = (self._config.height, self._config.width)
 
@@ -74,7 +75,8 @@ class DabaiMax(Camera, EasyResource):
         **kwargs,
     ) -> Tuple[Sequence[NamedImage], ResponseMetadata]:
         del extra, kwargs
-        requested = [sensor for sensor in self._config.sensors if not filter_source_names or sensor in filter_source_names]
+        available = [name for name in ("color", "ir", "depth") if name == "color" or name in self._streams]
+        requested = [name for name in available if not filter_source_names or name in filter_source_names]
         timeout_ms = int((timeout if timeout is not None else 5.0) * 1000)
         loop = asyncio.get_running_loop()
         async with self._lock:
@@ -92,7 +94,7 @@ class DabaiMax(Camera, EasyResource):
         **kwargs,
     ) -> Tuple[bytes, str]:
         del extra, kwargs
-        if "depth" not in self._config.sensors or self._intrinsics is None:
+        if self._intrinsics is None:
             raise NotImplementedError("point clouds require the depth sensor")
         timeout_ms = int((timeout if timeout is not None else 5.0) * 1000)
         loop = asyncio.get_running_loop()
@@ -102,15 +104,13 @@ class DabaiMax(Camera, EasyResource):
 
     async def get_properties(self, *, timeout: Optional[float] = None, **kwargs) -> Camera.Properties:
         del timeout, kwargs
-        mime_types = []
-        if "ir" in self._config.sensors or "color" in self._config.sensors:
-            mime_types.append(str(CameraMimeType.JPEG))
-        if "depth" in self._config.sensors:
+        mime_types = [str(CameraMimeType.JPEG)]
+        if "depth" in self._streams:
             mime_types.append(str(CameraMimeType.VIAM_RAW_DEPTH))
         properties = Camera.Properties(
-            supports_pcd="depth" in self._config.sensors,
+            supports_pcd=self._intrinsics is not None,
             mime_types=mime_types,
-            frame_rate=float(self._config.fps if "depth" in self._config.sensors else self._config.ir_fps),
+            frame_rate=float(self._config.fps),
         )
         if self._intrinsics is not None:
             fx, fy, cx, cy = self._intrinsics
@@ -168,9 +168,22 @@ class DabaiMax(Camera, EasyResource):
                 camera.info.get("uri", ""),
             )
             self._warn_if_unexpected_device(camera.info.get("name", ""))
-            for sensor in self._config.sensors:
-                self._start_sensor(camera, sensor)
-            if "depth" in self._config.sensors:
+            started: list[str] = []
+            for sensor in ("ir", "depth"):
+                try:
+                    self._start_sensor(camera, sensor)
+                except Exception as err:
+                    if sensor == "depth":
+                        raise
+                    self.logger.warning("skipping %s: %s", sensor, err)
+                    continue
+                started.append(sensor)
+            # The control tab displays the first JPEG. Lead with a false-color
+            # view of the depth map, since this camera has no RGB sensor.
+            if "depth" in started:
+                started.insert(0, "color")
+            self._streams = tuple(started)
+            if "depth" in self._streams:
                 hfov, vfov = camera.field_of_view(SENSOR_DEPTH)
                 height, width = self._depth_shape
                 self._intrinsics = intrinsics_from_fov(width, height, hfov, vfov)
@@ -216,8 +229,6 @@ class DabaiMax(Camera, EasyResource):
     def _mode_request(self, sensor: str) -> tuple[int, int, int]:
         if sensor == "ir":
             return self._config.ir_width, self._config.ir_height, self._config.ir_fps
-        if sensor == "color":
-            return self._config.color_width, self._config.color_height, self._config.color_fps
         return self._config.width, self._config.height, self._config.fps
 
     def _capture_sync(self, sensors: Sequence[str], timeout_ms: int) -> list[tuple[str, bytes, CameraMimeType]]:
@@ -225,28 +236,24 @@ class DabaiMax(Camera, EasyResource):
             raise RuntimeError("DaBai Max is not open")
         images: list[tuple[str, bytes, CameraMimeType]] = []
         with self._device_lock:
-            for sensor in sensors:
-                frame = self._camera.read_frame(_SENSOR_TYPES[sensor], timeout_ms)
-                if sensor == "depth":
-                    depth = depth_frame_to_mm(frame.data, frame.width, frame.height, frame.stride, frame.pixel_format)
-                    self._depth_shape = depth.shape
-                    images.append((sensor, encode_depth_map(depth), CameraMimeType.VIAM_RAW_DEPTH))
-                elif sensor == "ir":
-                    images.append(
-                        (
-                            sensor,
-                            ir_frame_to_jpeg(frame.data, frame.width, frame.height, frame.stride, frame.pixel_format),
-                            CameraMimeType.JPEG,
-                        )
+            depth = None
+            if "color" in sensors or "depth" in sensors:
+                frame = self._camera.read_frame(SENSOR_DEPTH, timeout_ms)
+                depth = depth_frame_to_mm(frame.data, frame.width, frame.height, frame.stride, frame.pixel_format)
+                self._depth_shape = depth.shape
+            if "color" in sensors and depth is not None:
+                images.append(("color", depth_to_color_jpeg(depth), CameraMimeType.JPEG))
+            if "ir" in sensors:
+                frame = self._camera.read_frame(SENSOR_IR, timeout_ms)
+                images.append(
+                    (
+                        "ir",
+                        ir_frame_to_jpeg(frame.data, frame.width, frame.height, frame.stride, frame.pixel_format),
+                        CameraMimeType.JPEG,
                     )
-                else:
-                    images.append(
-                        (
-                            sensor,
-                            color_frame_to_jpeg(frame.data, frame.width, frame.height, frame.stride, frame.pixel_format),
-                            CameraMimeType.JPEG,
-                        )
-                    )
+                )
+            if "depth" in sensors and depth is not None:
+                images.append(("depth", encode_depth_map(depth), CameraMimeType.VIAM_RAW_DEPTH))
         return images
 
     def _point_cloud_sync(self, timeout_ms: int) -> bytes:
@@ -272,6 +279,7 @@ class DabaiMax(Camera, EasyResource):
         if self._camera is not None:
             self._camera.close()
             self._camera = None
+        self._streams = ()
         self._intrinsics = None
 
     def _warn_if_unexpected_device(self, name: str) -> None:

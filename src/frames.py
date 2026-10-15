@@ -39,7 +39,6 @@ class VideoMode:
 
 @dataclass(frozen=True)
 class CameraConfig:
-    sensors: tuple[str, ...]
     serial_number: str
     device_uri: str
     openni2_redist: str
@@ -49,33 +48,18 @@ class CameraConfig:
     ir_width: int
     ir_height: int
     ir_fps: int
-    color_width: int
-    color_height: int
-    color_fps: int
     min_depth_mm: int
     max_depth_mm: int
     point_cloud_stride: int
 
 
 def parse_attributes(attrs: dict) -> CameraConfig:
-    sensors = attrs.get("sensors", ["ir", "depth"])
-    if isinstance(sensors, str):
-        sensors = [part.strip() for part in sensors.split(",") if part.strip()]
-    if not isinstance(sensors, list) or not sensors:
-        raise ValueError("sensors must be a non-empty list")
-    unknown = [sensor for sensor in sensors if sensor not in {"color", "depth", "ir"}]
-    if unknown:
-        raise ValueError(f"unsupported sensors {unknown}; use color, depth, and ir")
-    if len(set(sensors)) != len(sensors):
-        raise ValueError("sensors contains a duplicate")
-
     min_depth_mm = _positive_or_zero(attrs, "min_depth_mm", 200)
     max_depth_mm = _positive_or_zero(attrs, "max_depth_mm", 2500)
     if min_depth_mm and max_depth_mm and min_depth_mm > max_depth_mm:
         raise ValueError("min_depth_mm must be less than or equal to max_depth_mm")
 
     return CameraConfig(
-        sensors=tuple(sensors),
         serial_number=str(attrs.get("serial_number", "") or ""),
         device_uri=str(attrs.get("device_uri", "") or ""),
         openni2_redist=str(attrs.get("openni2_redist", "") or ""),
@@ -85,9 +69,6 @@ def parse_attributes(attrs: dict) -> CameraConfig:
         ir_width=_positive(attrs, "ir_width", 640),
         ir_height=_positive(attrs, "ir_height", 400),
         ir_fps=_positive(attrs, "ir_fps", 10),
-        color_width=_positive(attrs, "color_width", 640),
-        color_height=_positive(attrs, "color_height", 480),
-        color_fps=_positive(attrs, "color_fps", 10),
         min_depth_mm=min_depth_mm,
         max_depth_mm=max_depth_mm,
         point_cloud_stride=_positive(attrs, "point_cloud_stride", 1),
@@ -127,6 +108,59 @@ def intrinsics_from_fov(width: int, height: int, hfov_rad: float, vfov_rad: floa
     fx = (width / 2.0) / math.tan(hfov / 2.0)
     fy = (height / 2.0) / math.tan(vfov / 2.0)
     return fx, fy, width / 2.0, height / 2.0
+
+
+def depth_to_color_jpeg(depth_mm: np.ndarray) -> bytes:
+    """False-color a depth map the way Viam's control tab draws raw depth.
+
+    Near values are warm and far values are cool. Unmeasured pixels stay black.
+    """
+    if depth_mm.ndim != 2:
+        raise ValueError("depth map must be a 2-D array")
+    depth = depth_mm.astype(np.float32, copy=False)
+    valid = depth > 0
+    rgb = np.zeros((depth.shape[0], depth.shape[1], 3), dtype=np.uint8)
+    if np.any(valid):
+        samples = depth[valid]
+        near = float(samples.min())
+        span = max(float(samples.max()) - near, 1.0)
+        ratio = np.clip((depth - near) / span, 0.0, 1.0)
+        hue = 30.0 + 200.0 * ratio
+        sector = hue / 60.0
+        x = np.rint((1.0 - np.abs((sector % 2.0) - 1.0)) * 255.0)
+        bands = (
+            (sector < 1, (255, x, 0)),
+            ((sector >= 1) & (sector < 2), (x, 255, 0)),
+            ((sector >= 2) & (sector < 3), (0, 255, x)),
+            ((sector >= 3) & (sector < 4), (0, x, 255)),
+            ((sector >= 4) & (sector < 5), (x, 0, 255)),
+            (sector >= 5, (255, 0, x)),
+        )
+        for mask, channels in bands:
+            selected = valid & mask
+            for channel, values in enumerate(channels):
+                plane = rgb[:, :, channel]
+                plane[selected] = np.asarray(values, dtype=np.float32)[selected].astype(np.uint8)
+    return _jpeg(rgb)
+
+
+def depth_to_color_jpeg(depth_mm: np.ndarray) -> bytes:
+    """False-color a depth map the way Viam's control tab colors raw depth.
+
+    Near values are warm (hue 30) and far values are cool (hue 230). Missing
+    pixels, stored as 0, stay black.
+    """
+    if depth_mm.ndim != 2:
+        raise ValueError("depth map must be a 2-D array")
+    valid = depth_mm > 0
+    rgb = np.zeros((*depth_mm.shape, 3), dtype=np.uint8)
+    if np.any(valid):
+        near = int(depth_mm[valid].min())
+        far = int(depth_mm[valid].max())
+        span = max(far - near, 1)
+        ratio = (depth_mm.astype(np.float32) - np.float32(near)) / np.float32(span)
+        rgb[valid] = _hue_to_rgb(30.0 + ratio[valid] * 200.0)
+    return _jpeg(rgb)
 
 
 def encode_depth_map(depth_mm: np.ndarray) -> bytes:
@@ -189,11 +223,16 @@ def depth_to_points(
     return np.column_stack((x, y, z)).astype(np.float32, copy=False)
 
 
-def encode_pcd(points: np.ndarray) -> bytes:
-    count = 0 if points.size == 0 else int(points.shape[0])
+def encode_pcd(points_mm: np.ndarray) -> bytes:
+    """Encode an Nx3 point cloud.
+
+    ``points_mm`` is in millimeters. Viam's PCD reader treats file coordinates as
+    meters and multiplies them by 1000, so the file stores meters.
+    """
+    count = 0 if points_mm.size == 0 else int(points_mm.shape[0])
     header = (
         "# .PCD v0.7 - Point Cloud Data file format\n"
-        "VERSION 0.7\n"
+        "VERSION .7\n"
         "FIELDS x y z\n"
         "SIZE 4 4 4\n"
         "TYPE F F F\n"
@@ -206,8 +245,8 @@ def encode_pcd(points: np.ndarray) -> bytes:
     ).encode("ascii")
     if count == 0:
         return header
-    payload = np.ascontiguousarray(points, dtype="<f4").tobytes()
-    return header + payload
+    meters = np.ascontiguousarray(points_mm, dtype="<f4") / np.float32(1000.0)
+    return header + meters.tobytes()
 
 
 def ir_frame_to_jpeg(data: bytes, width: int, height: int, stride: int, pixel_format: int) -> bytes:
@@ -237,6 +276,8 @@ def color_frame_to_jpeg(data: bytes, width: int, height: int, stride: int, pixel
 
 
 def _gray_image(data: bytes, width: int, height: int, stride: int, pixel_format: int) -> np.ndarray:
+    if pixel_format not in (GRAY8, GRAY16):
+        pixel_format = GRAY16 if len(data) >= width * height * 2 else GRAY8
     if pixel_format == GRAY8:
         row_bytes = stride if stride > 0 else width
         if row_bytes == width:
@@ -282,6 +323,27 @@ def _packed_422_to_rgb(data: bytes, width: int, height: int, y0: int, u: int, y1
         rgb[:, offset::2, 1] = np.clip(g, 0, 255)
         rgb[:, offset::2, 2] = np.clip(b, 0, 255)
     return rgb
+
+
+def _hue_to_rgb(hue: np.ndarray) -> np.ndarray:
+    sector = hue / 60.0
+    cross = np.rint((1.0 - np.abs(np.mod(sector, 2.0) - 1.0)) * 255.0)
+    red = np.zeros(hue.shape, dtype=np.float32)
+    green = np.zeros(hue.shape, dtype=np.float32)
+    blue = np.zeros(hue.shape, dtype=np.float32)
+    bands = (
+        (sector < 1, 255.0, cross, 0.0),
+        ((sector >= 1) & (sector < 2), cross, 255.0, 0.0),
+        ((sector >= 2) & (sector < 3), 0.0, 255.0, cross),
+        ((sector >= 3) & (sector < 4), 0.0, cross, 255.0),
+        ((sector >= 4) & (sector < 5), cross, 0.0, 255.0),
+        (sector >= 5, 255.0, 0.0, cross),
+    )
+    for mask, red_value, green_value, blue_value in bands:
+        red = np.where(mask, red_value, red)
+        green = np.where(mask, green_value, green)
+        blue = np.where(mask, blue_value, blue)
+    return np.stack((red, green, blue), axis=-1).astype(np.uint8)
 
 
 def _jpeg(image: np.ndarray) -> bytes:
