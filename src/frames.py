@@ -111,55 +111,23 @@ def intrinsics_from_fov(width: int, height: int, hfov_rad: float, vfov_rad: floa
 
 
 def depth_to_color_jpeg(depth_mm: np.ndarray) -> bytes:
-    """False-color a depth map the way Viam's control tab draws raw depth.
+    """Render depth as a bright false-color JPEG.
 
-    Near values are warm and far values are cool. Unmeasured pixels stay black.
-    """
-    if depth_mm.ndim != 2:
-        raise ValueError("depth map must be a 2-D array")
-    depth = depth_mm.astype(np.float32, copy=False)
-    valid = depth > 0
-    rgb = np.zeros((depth.shape[0], depth.shape[1], 3), dtype=np.uint8)
-    if np.any(valid):
-        samples = depth[valid]
-        near = float(samples.min())
-        span = max(float(samples.max()) - near, 1.0)
-        ratio = np.clip((depth - near) / span, 0.0, 1.0)
-        hue = 30.0 + 200.0 * ratio
-        sector = hue / 60.0
-        x = np.rint((1.0 - np.abs((sector % 2.0) - 1.0)) * 255.0)
-        bands = (
-            (sector < 1, (255, x, 0)),
-            ((sector >= 1) & (sector < 2), (x, 255, 0)),
-            ((sector >= 2) & (sector < 3), (0, 255, x)),
-            ((sector >= 3) & (sector < 4), (0, x, 255)),
-            ((sector >= 4) & (sector < 5), (x, 0, 255)),
-            (sector >= 5, (255, 0, x)),
-        )
-        for mask, channels in bands:
-            selected = valid & mask
-            for channel, values in enumerate(channels):
-                plane = rgb[:, :, channel]
-                plane[selected] = np.asarray(values, dtype=np.float32)[selected].astype(np.uint8)
-    return _jpeg(rgb)
-
-
-def depth_to_color_jpeg(depth_mm: np.ndarray) -> bytes:
-    """False-color a depth map the way Viam's control tab colors raw depth.
-
-    Near values are warm (hue 30) and far values are cool (hue 230). Missing
-    pixels, stored as 0, stay black.
+    A raw depth value of a few thousand millimeters is almost black when it is
+    stored in a 16-bit image and then turned into a JPEG. This stretches the
+    measured range across a full-brightness hue sweep instead. Near is warm,
+    far is cool, and unmeasured pixels stay black.
     """
     if depth_mm.ndim != 2:
         raise ValueError("depth map must be a 2-D array")
     valid = depth_mm > 0
-    rgb = np.zeros((*depth_mm.shape, 3), dtype=np.uint8)
+    rgb = np.zeros((depth_mm.shape[0], depth_mm.shape[1], 3), dtype=np.uint8)
     if np.any(valid):
-        near = int(depth_mm[valid].min())
-        far = int(depth_mm[valid].max())
-        span = max(far - near, 1)
+        samples = depth_mm[valid].astype(np.float32)
+        near = float(samples.min())
+        span = max(float(samples.max()) - near, 1.0)
         ratio = (depth_mm.astype(np.float32) - np.float32(near)) / np.float32(span)
-        rgb[valid] = _hue_to_rgb(30.0 + ratio[valid] * 200.0)
+        rgb[valid] = _hue_to_rgb((30.0 + 200.0 * ratio)[valid])
     return _jpeg(rgb)
 
 

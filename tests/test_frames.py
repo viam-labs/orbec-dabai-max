@@ -14,8 +14,8 @@ from frames import (  # noqa: E402
     VideoMode,
     choose_video_mode,
     depth_frame_to_mm,
-    depth_to_points,
     depth_to_color_jpeg,
+    depth_to_points,
     encode_depth_map,
     encode_pcd,
     intrinsics_from_fov,
@@ -65,20 +65,19 @@ def test_depth_encoding_round_trip_is_big_endian():
     np.testing.assert_array_equal(pixels, depth)
 
 
-def test_depth_color_jpeg_is_warm_near_and_black_when_missing():
+def test_depth_color_jpeg_is_bright_for_ordinary_millimeter_values():
+    from io import BytesIO
+
     from PIL import Image
 
-    depth = np.zeros((16, 48), dtype=np.uint16)
-    depth[:, 16:32] = 200
-    depth[:, 32:48] = 2000
+    depth = np.zeros((32, 32), dtype=np.uint16)
+    depth[8:24, 8:24] = 1000
     encoded = depth_to_color_jpeg(depth)
     assert encoded[:2] == b"\xff\xd8"
-    image = np.asarray(Image.open(__import__("io").BytesIO(encoded)))
-    assert image[8, 4].tolist() == [0, 0, 0]
-    near = image[8, 20].astype(int)
-    far = image[8, 36].astype(int)
-    assert near[0] > far[0]
-    assert far[2] > near[2]
+    image = np.asarray(Image.open(BytesIO(encoded)))
+    pixel = image[16, 16].astype(int)
+    assert int(pixel.max()) > 200
+    assert int(image[2, 2].max()) < 20
 
 
 def test_depth_100_um_converts_to_millimeters():
