@@ -1,7 +1,7 @@
 {
   "$schema": "https://dl.viam.dev/module.schema.json",
   "module_id": "viam-labs:dabai-max",
-  "visibility": "private",
+  "visibility": "public",
   "url": "https://github.com/viam-labs/orbec-dabai-max",
   "description": "Orbbec DaBai Max depth camera: infrared, depth, and point clouds over OpenNI 2.",
   "models": [
