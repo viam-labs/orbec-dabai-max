@@ -9,6 +9,14 @@ from typing import Any, ClassVar, Mapping, Optional, Sequence, Tuple
 
 from google.protobuf.timestamp_pb2 import Timestamp
 from typing_extensions import Self
+from viam.components.camera import Camera, IntrinsicParameters
+from viam.media.video import CameraMimeType, NamedImage
+from viam.proto.app.robot import ComponentConfig
+from viam.proto.common import Geometry, ResourceName, ResponseMetadata
+from viam.resource.base import ResourceBase
+from viam.resource.easy_resource import EasyResource
+from viam.resource.types import Model, ModelFamily
+from viam.utils import ValueTypes, struct_to_dict
 
 from frames import (
     DEPTH_FORMATS,
@@ -23,14 +31,6 @@ from frames import (
     parse_attributes,
 )
 from openni2 import SENSOR_DEPTH, OpenNI2
-from viam.components.camera import Camera, IntrinsicParameters
-from viam.media.video import CameraMimeType, NamedImage
-from viam.proto.app.robot import ComponentConfig
-from viam.proto.common import Geometry, ResourceName, ResponseMetadata
-from viam.resource.base import ResourceBase
-from viam.resource.easy_resource import EasyResource
-from viam.resource.types import Model, ModelFamily
-from viam.utils import ValueTypes, struct_to_dict
 
 _SENSOR_TYPES = {"depth": SENSOR_DEPTH}
 _PREFERRED_FORMATS = {"depth": DEPTH_FORMATS}
