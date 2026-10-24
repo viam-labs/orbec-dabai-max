@@ -95,7 +95,9 @@ def test_point_cloud_uses_optical_frame_and_drops_out_of_range_pixels():
         ],
         dtype=np.uint16,
     )
-    points = depth_to_points(depth, fx=100, fy=100, cx=1, cy=1, min_depth_mm=200, max_depth_mm=2500, stride=1)
+    points = depth_to_points(
+        depth, fx=100, fy=100, cx=1, cy=1, min_depth_mm=200, max_depth_mm=2500, stride=1
+    )
     # 100 mm is below the minimum and 3000 mm is above the maximum.
     # The remaining pixels are one step left of center, the center, and one step down.
     expected = np.array(
@@ -117,7 +119,9 @@ def test_pcd_stores_meters_for_viam():
     assert b"POINTS 2" in header
     assert b"WIDTH 2" in header
     decoded = np.frombuffer(payload, dtype="<f4").reshape(2, 3)
-    np.testing.assert_allclose(decoded, np.array([[1, 2, 3], [0, 0, 0.5]], dtype=np.float32))
+    np.testing.assert_allclose(
+        decoded, np.array([[1, 2, 3], [0, 0, 0.5]], dtype=np.float32)
+    )
 
 
 def test_intrinsics_accept_radians_or_degrees():

@@ -86,7 +86,11 @@ def choose_video_mode(
         raise ValueError("camera reported no video modes")
 
     def sort_key(mode: VideoMode) -> tuple[int, int, int, int]:
-        exact = 0 if (mode.width == width and mode.height == height and mode.fps == fps) else 1
+        exact = (
+            0
+            if (mode.width == width and mode.height == height and mode.fps == fps)
+            else 1
+        )
         size_penalty = abs(mode.width - width) + abs(mode.height - height)
         try:
             format_rank = preferred_formats.index(mode.pixel_format)
@@ -97,7 +101,9 @@ def choose_video_mode(
     return min(modes, key=sort_key)
 
 
-def intrinsics_from_fov(width: int, height: int, hfov_rad: float, vfov_rad: float) -> tuple[float, float, float, float]:
+def intrinsics_from_fov(
+    width: int, height: int, hfov_rad: float, vfov_rad: float
+) -> tuple[float, float, float, float]:
     """Return fx, fy, cx, cy for a pinhole camera.
 
     OpenNI reports field of view in radians. Some Orbbec drivers report degrees
@@ -141,16 +147,22 @@ def encode_depth_map(depth_mm: np.ndarray) -> bytes:
     return header + pixels.tobytes()
 
 
-def depth_frame_to_mm(data: bytes, width: int, height: int, stride: int, pixel_format: int) -> np.ndarray:
+def depth_frame_to_mm(
+    data: bytes, width: int, height: int, stride: int, pixel_format: int
+) -> np.ndarray:
     row_bytes = stride if stride > 0 else width * 2
     needed = row_bytes * height
     if len(data) < needed:
-        raise ValueError(f"depth frame is {len(data)} bytes, expected at least {needed}")
+        raise ValueError(
+            f"depth frame is {len(data)} bytes, expected at least {needed}"
+        )
     if row_bytes == width * 2:
         depth = np.frombuffer(data[:needed], dtype="<u2").reshape(height, width).copy()
     else:
         rows = [
-            np.frombuffer(data[y * row_bytes : y * row_bytes + width * 2], dtype="<u2").copy()
+            np.frombuffer(
+                data[y * row_bytes : y * row_bytes + width * 2], dtype="<u2"
+            ).copy()
             for y in range(height)
         ]
         depth = np.stack(rows)
@@ -217,23 +229,33 @@ def encode_pcd(points_mm: np.ndarray) -> bytes:
     return header + meters.tobytes()
 
 
-def ir_frame_to_jpeg(data: bytes, width: int, height: int, stride: int, pixel_format: int) -> bytes:
+def ir_frame_to_jpeg(
+    data: bytes, width: int, height: int, stride: int, pixel_format: int
+) -> bytes:
     gray = _gray_image(data, width, height, stride, pixel_format)
     return _jpeg(gray)
 
 
-def color_frame_to_jpeg(data: bytes, width: int, height: int, stride: int, pixel_format: int) -> bytes:
+def color_frame_to_jpeg(
+    data: bytes, width: int, height: int, stride: int, pixel_format: int
+) -> bytes:
     if pixel_format == JPEG:
         return data
     if pixel_format == RGB888:
         row_bytes = stride if stride > 0 else width * 3
         if row_bytes == width * 3:
-            rgb = np.frombuffer(data, dtype=np.uint8, count=width * height * 3).reshape(height, width, 3)
+            rgb = np.frombuffer(data, dtype=np.uint8, count=width * height * 3).reshape(
+                height, width, 3
+            )
         else:
             rows = []
             for y in range(height):
                 start = y * row_bytes
-                rows.append(np.frombuffer(data[start : start + width * 3], dtype=np.uint8).reshape(width, 3))
+                rows.append(
+                    np.frombuffer(
+                        data[start : start + width * 3], dtype=np.uint8
+                    ).reshape(width, 3)
+                )
             rgb = np.stack(rows)
         return _jpeg(rgb)
     if pixel_format == YUV422:
@@ -243,22 +265,34 @@ def color_frame_to_jpeg(data: bytes, width: int, height: int, stride: int, pixel
     raise ValueError(f"unsupported color pixel format {pixel_format}")
 
 
-def _gray_image(data: bytes, width: int, height: int, stride: int, pixel_format: int) -> np.ndarray:
+def _gray_image(
+    data: bytes, width: int, height: int, stride: int, pixel_format: int
+) -> np.ndarray:
     if pixel_format not in (GRAY8, GRAY16):
         pixel_format = GRAY16 if len(data) >= width * height * 2 else GRAY8
     if pixel_format == GRAY8:
         row_bytes = stride if stride > 0 else width
         if row_bytes == width:
-            return np.frombuffer(data, dtype=np.uint8, count=width * height).reshape(height, width)
-        rows = [np.frombuffer(data[y * row_bytes : y * row_bytes + width], dtype=np.uint8) for y in range(height)]
+            return np.frombuffer(data, dtype=np.uint8, count=width * height).reshape(
+                height, width
+            )
+        rows = [
+            np.frombuffer(data[y * row_bytes : y * row_bytes + width], dtype=np.uint8)
+            for y in range(height)
+        ]
         return np.stack(rows)
     if pixel_format == GRAY16:
         row_bytes = stride if stride > 0 else width * 2
         if row_bytes == width * 2:
-            gray16 = np.frombuffer(data, dtype="<u2", count=width * height).reshape(height, width)
+            gray16 = np.frombuffer(data, dtype="<u2", count=width * height).reshape(
+                height, width
+            )
         else:
             rows = [
-                np.frombuffer(data[y * row_bytes : y * row_bytes + width * 2], dtype="<u2") for y in range(height)
+                np.frombuffer(
+                    data[y * row_bytes : y * row_bytes + width * 2], dtype="<u2"
+                )
+                for y in range(height)
             ]
             gray16 = np.stack(rows)
         peak = int(gray16.max()) if gray16.size else 1
@@ -276,8 +310,12 @@ def _uyvy_to_rgb(data: bytes, width: int, height: int) -> np.ndarray:
     return _packed_422_to_rgb(data, width, height, y0=1, u=0, y1=3, v=2)
 
 
-def _packed_422_to_rgb(data: bytes, width: int, height: int, y0: int, u: int, y1: int, v: int) -> np.ndarray:
-    packed = np.frombuffer(data, dtype=np.uint8, count=width * height * 2).reshape(height, width // 2, 4)
+def _packed_422_to_rgb(
+    data: bytes, width: int, height: int, y0: int, u: int, y1: int, v: int
+) -> np.ndarray:
+    packed = np.frombuffer(data, dtype=np.uint8, count=width * height * 2).reshape(
+        height, width // 2, 4
+    )
     y0_plane = packed[:, :, y0].astype(np.float32)
     u_plane = packed[:, :, u].astype(np.float32) - 128.0
     y1_plane = packed[:, :, y1].astype(np.float32)
@@ -361,5 +399,6 @@ def format_name(pixel_format: int) -> str:
 
 def describe_modes(modes: Iterable[VideoMode]) -> str:
     return ", ".join(
-        f"{mode.width}x{mode.height}@{mode.fps} {format_name(mode.pixel_format)}" for mode in modes
+        f"{mode.width}x{mode.height}@{mode.fps} {format_name(mode.pixel_format)}"
+        for mode in modes
     )
