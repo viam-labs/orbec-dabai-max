@@ -76,14 +76,7 @@ class OniFrame(ctypes.Structure):
 
 class Frame:
     def __init__(
-        self,
-        data: bytes,
-        width: int,
-        height: int,
-        stride: int,
-        pixel_format: int,
-        timestamp: int,
-        index: int,
+        self, data: bytes, width: int, height: int, stride: int, pixel_format: int, timestamp: int, index: int
     ):
         self.data = data
         self.width = width
@@ -104,11 +97,7 @@ class OpenNI2:
     def list_devices(self) -> list[dict[str, str | int]]:
         devices = ctypes.POINTER(OniDeviceInfo)()
         count = ctypes.c_int()
-        _check(
-            self.lib,
-            self.lib.oniGetDeviceList(ctypes.byref(devices), ctypes.byref(count)),
-            "list devices",
-        )
+        _check(self.lib, self.lib.oniGetDeviceList(ctypes.byref(devices), ctypes.byref(count)), "list devices")
         found: list[dict[str, str | int]] = []
         try:
             for index in range(count.value):
@@ -129,35 +118,23 @@ class OpenNI2:
     def open_device(self, serial_number: str = "", device_uri: str = "") -> None:
         devices = self.list_devices()
         if not devices:
-            raise RuntimeError(
-                "no OpenNI camera was found; check the USB cable and udev rules"
-            )
+            raise RuntimeError("no OpenNI camera was found; check the USB cable and udev rules")
         if device_uri:
-            match = next(
-                (device for device in devices if device["uri"] == device_uri), None
-            )
+            match = next((device for device in devices if device["uri"] == device_uri), None)
             if match is None:
                 available = ", ".join(str(device["uri"]) for device in devices)
-                raise RuntimeError(
-                    f"device_uri {device_uri!r} is not connected; available: {available}"
-                )
+                raise RuntimeError(f"device_uri {device_uri!r} is not connected; available: {available}")
             self._open_uri(str(match["uri"]), str(match["name"]), str(match["vendor"]))
             return
         if serial_number:
             for device in devices:
-                self._open_uri(
-                    str(device["uri"]), str(device["name"]), str(device["vendor"])
-                )
+                self._open_uri(str(device["uri"]), str(device["name"]), str(device["vendor"]))
                 if self.info.get("serial_number") == serial_number:
                     return
                 self.close_device()
-            raise RuntimeError(
-                f"no OpenNI camera with serial number {serial_number!r} was found"
-            )
+            raise RuntimeError(f"no OpenNI camera with serial number {serial_number!r} was found")
         if len(devices) > 1:
-            names = ", ".join(
-                f"{device['name']} ({device['uri']})" for device in devices
-            )
+            names = ", ".join(f"{device['name']} ({device['uri']})" for device in devices)
             raise RuntimeError(
                 f"multiple OpenNI cameras are connected; set serial_number or device_uri. Found: {names}"
             )
@@ -184,9 +161,7 @@ class OpenNI2:
         stream = ctypes.c_void_p()
         _check(
             self.lib,
-            self.lib.oniDeviceCreateStream(
-                self.device, sensor_type, ctypes.byref(stream)
-            ),
+            self.lib.oniDeviceCreateStream(self.device, sensor_type, ctypes.byref(stream)),
             "create stream",
         )
         video_mode = OniVideoMode(mode.pixel_format, mode.width, mode.height, mode.fps)
@@ -198,11 +173,7 @@ class OpenNI2:
         )
         if status != ONI_STATUS_OK:
             self.lib.oniStreamDestroy(stream)
-            _check(
-                self.lib,
-                status,
-                f"set video mode {mode.width}x{mode.height}@{mode.fps}",
-            )
+            _check(self.lib, status, f"set video mode {mode.width}x{mode.height}@{mode.fps}")
         _check(self.lib, self.lib.oniStreamStart(stream), "start stream")
         self.streams[sensor_type] = stream
 
@@ -212,17 +183,11 @@ class OpenNI2:
         index = ctypes.c_int(-1)
         _check(
             self.lib,
-            self.lib.oniWaitForAnyStream(
-                handles, 1, ctypes.byref(index), int(timeout_ms)
-            ),
+            self.lib.oniWaitForAnyStream(handles, 1, ctypes.byref(index), int(timeout_ms)),
             "wait for frame",
         )
         frame_ptr = ctypes.POINTER(OniFrame)()
-        _check(
-            self.lib,
-            self.lib.oniStreamReadFrame(stream, ctypes.byref(frame_ptr)),
-            "read frame",
-        )
+        _check(self.lib, self.lib.oniStreamReadFrame(stream, ctypes.byref(frame_ptr)), "read frame")
         try:
             frame = frame_ptr.contents
             if not frame.data or frame.dataSize <= 0:
@@ -262,11 +227,7 @@ class OpenNI2:
 
     def _open_uri(self, uri: str, name: str, vendor: str) -> None:
         handle = ctypes.c_void_p()
-        _check(
-            self.lib,
-            self.lib.oniDeviceOpen(uri.encode("utf-8"), ctypes.byref(handle)),
-            f"open {uri}",
-        )
+        _check(self.lib, self.lib.oniDeviceOpen(uri.encode("utf-8"), ctypes.byref(handle)), f"open {uri}")
         self.device = handle
         self.info = {
             "uri": uri,
@@ -372,10 +333,7 @@ def _bind(lib: ctypes.CDLL) -> None:
     lib.oniShutdown.restype = None
     lib.oniGetExtendedError.argtypes = []
     lib.oniGetExtendedError.restype = ctypes.c_char_p
-    lib.oniGetDeviceList.argtypes = [
-        ctypes.POINTER(ctypes.POINTER(OniDeviceInfo)),
-        ctypes.POINTER(ctypes.c_int),
-    ]
+    lib.oniGetDeviceList.argtypes = [ctypes.POINTER(ctypes.POINTER(OniDeviceInfo)), ctypes.POINTER(ctypes.c_int)]
     lib.oniGetDeviceList.restype = ctypes.c_int
     lib.oniReleaseDeviceList.argtypes = [ctypes.POINTER(OniDeviceInfo)]
     lib.oniReleaseDeviceList.restype = ctypes.c_int
@@ -385,18 +343,9 @@ def _bind(lib: ctypes.CDLL) -> None:
     lib.oniDeviceClose.restype = ctypes.c_int
     lib.oniDeviceGetSensorInfo.argtypes = [ctypes.c_void_p, ctypes.c_int]
     lib.oniDeviceGetSensorInfo.restype = ctypes.POINTER(OniSensorInfo)
-    lib.oniDeviceGetProperty.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        ctypes.POINTER(ctypes.c_int),
-    ]
+    lib.oniDeviceGetProperty.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]
     lib.oniDeviceGetProperty.restype = ctypes.c_int
-    lib.oniDeviceCreateStream.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_int,
-        ctypes.POINTER(ctypes.c_void_p),
-    ]
+    lib.oniDeviceCreateStream.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)]
     lib.oniDeviceCreateStream.restype = ctypes.c_int
     lib.oniStreamDestroy.argtypes = [ctypes.c_void_p]
     lib.oniStreamDestroy.restype = None
@@ -404,19 +353,9 @@ def _bind(lib: ctypes.CDLL) -> None:
     lib.oniStreamStart.restype = ctypes.c_int
     lib.oniStreamStop.argtypes = [ctypes.c_void_p]
     lib.oniStreamStop.restype = None
-    lib.oniStreamSetProperty.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        ctypes.c_int,
-    ]
+    lib.oniStreamSetProperty.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
     lib.oniStreamSetProperty.restype = ctypes.c_int
-    lib.oniStreamGetProperty.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        ctypes.POINTER(ctypes.c_int),
-    ]
+    lib.oniStreamGetProperty.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]
     lib.oniStreamGetProperty.restype = ctypes.c_int
     lib.oniWaitForAnyStream.argtypes = [
         ctypes.POINTER(ctypes.c_void_p),
@@ -425,10 +364,7 @@ def _bind(lib: ctypes.CDLL) -> None:
         ctypes.c_int,
     ]
     lib.oniWaitForAnyStream.restype = ctypes.c_int
-    lib.oniStreamReadFrame.argtypes = [
-        ctypes.c_void_p,
-        ctypes.POINTER(ctypes.POINTER(OniFrame)),
-    ]
+    lib.oniStreamReadFrame.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.POINTER(OniFrame))]
     lib.oniStreamReadFrame.restype = ctypes.c_int
     lib.oniFrameRelease.argtypes = [ctypes.POINTER(OniFrame)]
     lib.oniFrameRelease.restype = None
@@ -456,22 +392,16 @@ def _extended_error(lib: ctypes.CDLL) -> str:
 def _serial_number(lib: ctypes.CDLL, device: ctypes.c_void_p) -> str:
     buf = ctypes.create_string_buffer(ONI_MAX_STR)
     size = ctypes.c_int(ONI_MAX_STR)
-    status = lib.oniDeviceGetProperty(
-        device, ONI_DEVICE_PROPERTY_SERIAL_NUMBER, buf, ctypes.byref(size)
-    )
+    status = lib.oniDeviceGetProperty(device, ONI_DEVICE_PROPERTY_SERIAL_NUMBER, buf, ctypes.byref(size))
     if status != ONI_STATUS_OK:
         return ""
     return buf.value.decode("utf-8", "replace").strip()
 
 
-def _float_property(
-    lib: ctypes.CDLL, stream: ctypes.c_void_p, property_id: int
-) -> float:
+def _float_property(lib: ctypes.CDLL, stream: ctypes.c_void_p, property_id: int) -> float:
     value = ctypes.c_float()
     size = ctypes.c_int(ctypes.sizeof(value))
-    status = lib.oniStreamGetProperty(
-        stream, property_id, ctypes.byref(value), ctypes.byref(size)
-    )
+    status = lib.oniStreamGetProperty(stream, property_id, ctypes.byref(value), ctypes.byref(size))
     if status != ONI_STATUS_OK:
         return 0.0
     return float(value.value)

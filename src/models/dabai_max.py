@@ -54,18 +54,14 @@ class DabaiMax(Camera, EasyResource):
         self._depth_shape: tuple[int, int] = (self._config.height, self._config.width)
 
     @classmethod
-    def new(
-        cls, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]
-    ) -> Self:
+    def new(cls, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]) -> Self:
         camera = super().new(config, dependencies)
         camera._config = parse_attributes(struct_to_dict(config.attributes))
         camera._open_device()
         return camera
 
     @classmethod
-    def validate_config(
-        cls, config: ComponentConfig
-    ) -> Tuple[Sequence[str], Sequence[str]]:
+    def validate_config(cls, config: ComponentConfig) -> Tuple[Sequence[str], Sequence[str]]:
         parse_attributes(struct_to_dict(config.attributes))
         return [], []
 
@@ -81,15 +77,12 @@ class DabaiMax(Camera, EasyResource):
         requested = [
             name
             for name in _IMAGE_NAMES
-            if self._camera is not None
-            and (not filter_source_names or name in filter_source_names)
+            if self._camera is not None and (not filter_source_names or name in filter_source_names)
         ]
         timeout_ms = int((timeout if timeout is not None else 5.0) * 1000)
         loop = asyncio.get_running_loop()
         async with self._lock:
-            frames = await loop.run_in_executor(
-                None, self._capture_sync, requested, timeout_ms
-            )
+            frames = await loop.run_in_executor(None, self._capture_sync, requested, timeout_ms)
         images = [NamedImage(sensor, payload, mime) for sensor, payload, mime in frames]
         captured = Timestamp()
         captured.FromDatetime(datetime.now(timezone.utc))
@@ -111,15 +104,9 @@ class DabaiMax(Camera, EasyResource):
             cloud = await loop.run_in_executor(None, self._point_cloud_sync, timeout_ms)
         return cloud, CameraMimeType.PCD
 
-    async def get_properties(
-        self, *, timeout: Optional[float] = None, **kwargs
-    ) -> Camera.Properties:
+    async def get_properties(self, *, timeout: Optional[float] = None, **kwargs) -> Camera.Properties:
         del timeout, kwargs
-        mime_types = (
-            [str(CameraMimeType.JPEG), str(CameraMimeType.VIAM_RAW_DEPTH)]
-            if "depth" in self._streams
-            else []
-        )
+        mime_types = [str(CameraMimeType.JPEG), str(CameraMimeType.VIAM_RAW_DEPTH)] if "depth" in self._streams else []
         properties = Camera.Properties(
             supports_pcd=self._intrinsics is not None,
             mime_types=mime_types,
@@ -154,22 +141,12 @@ class DabaiMax(Camera, EasyResource):
         return {key: value for key, value in info.items()}
 
     async def get_geometries(
-        self,
-        *,
-        extra: Optional[dict[str, Any]] = None,
-        timeout: Optional[float] = None,
-        **kwargs,
+        self, *, extra: Optional[dict[str, Any]] = None, timeout: Optional[float] = None, **kwargs
     ) -> Sequence[Geometry]:
         del extra, timeout, kwargs
         return []
 
-    def stop(
-        self,
-        *,
-        extra: Optional[Mapping[str, Any]] = None,
-        timeout: Optional[float] = None,
-        **kwargs,
-    ):
+    def stop(self, *, extra: Optional[Mapping[str, Any]] = None, timeout: Optional[float] = None, **kwargs):
         """Release the camera. Viam calls this before rebuilding the resource."""
         del extra, timeout, kwargs
         with self._device_lock:
@@ -234,34 +211,26 @@ class DabaiMax(Camera, EasyResource):
         camera.start_stream(sensor_type, mode)
         if sensor == "depth":
             self._depth_shape = (mode.height, mode.width)
-        self.logger.info(
-            "started %s at %sx%s@%s", sensor, mode.width, mode.height, mode.fps
-        )
+        self.logger.info("started %s at %sx%s@%s", sensor, mode.width, mode.height, mode.fps)
 
     def _mode_request(self, sensor: str) -> tuple[int, int, int]:
         del sensor
         return self._config.width, self._config.height, self._config.fps
 
-    def _capture_sync(
-        self, sensors: Sequence[str], timeout_ms: int
-    ) -> list[tuple[str, bytes, CameraMimeType]]:
+    def _capture_sync(self, sensors: Sequence[str], timeout_ms: int) -> list[tuple[str, bytes, CameraMimeType]]:
         if self._camera is None:
             raise RuntimeError("DaBai Max is not open")
         if not any(name in sensors for name in ("color", "depth")):
             return []
         with self._device_lock:
             frame = self._camera.read_frame(SENSOR_DEPTH, timeout_ms)
-            depth = depth_frame_to_mm(
-                frame.data, frame.width, frame.height, frame.stride, frame.pixel_format
-            )
+            depth = depth_frame_to_mm(frame.data, frame.width, frame.height, frame.stride, frame.pixel_format)
             self._depth_shape = depth.shape
         images: list[tuple[str, bytes, CameraMimeType]] = []
         if "color" in sensors:
             images.append(("color", depth_to_color_jpeg(depth), CameraMimeType.JPEG))
         if "depth" in sensors:
-            images.append(
-                ("depth", encode_depth_map(depth), CameraMimeType.VIAM_RAW_DEPTH)
-            )
+            images.append(("depth", encode_depth_map(depth), CameraMimeType.VIAM_RAW_DEPTH))
         return images
 
     def _point_cloud_sync(self, timeout_ms: int) -> bytes:
@@ -269,9 +238,7 @@ class DabaiMax(Camera, EasyResource):
             raise RuntimeError("DaBai Max depth stream is not open")
         with self._device_lock:
             frame = self._camera.read_frame(SENSOR_DEPTH, timeout_ms)
-            depth = depth_frame_to_mm(
-                frame.data, frame.width, frame.height, frame.stride, frame.pixel_format
-            )
+            depth = depth_frame_to_mm(frame.data, frame.width, frame.height, frame.stride, frame.pixel_format)
         fx, fy, cx, cy = self._intrinsics
         points = depth_to_points(
             depth,
@@ -284,9 +251,7 @@ class DabaiMax(Camera, EasyResource):
             self._config.point_cloud_stride,
         )
         if points.size == 0:
-            points = depth_to_points(
-                depth, fx, fy, cx, cy, 0, 0, self._config.point_cloud_stride
-            )
+            points = depth_to_points(depth, fx, fy, cx, cy, 0, 0, self._config.point_cloud_stride)
             measured = int((depth > 0).sum())
             self.logger.warning(
                 "no depth pixels were inside %s-%s mm (format=%s, measured pixels=%s); point cloud uses every measured pixel",
