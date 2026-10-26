@@ -9,6 +9,14 @@ from typing import Any, ClassVar, Mapping, Optional, Sequence, Tuple
 
 from google.protobuf.timestamp_pb2 import Timestamp
 from typing_extensions import Self
+from viam.components.camera import Camera, IntrinsicParameters
+from viam.media.video import CameraMimeType, NamedImage
+from viam.proto.app.robot import ComponentConfig
+from viam.proto.common import Geometry, ResourceName, ResponseMetadata
+from viam.resource.base import ResourceBase
+from viam.resource.easy_resource import EasyResource
+from viam.resource.types import Model, ModelFamily
+from viam.utils import ValueTypes, struct_to_dict
 
 from frames import (
     DEPTH_FORMATS,
@@ -23,14 +31,6 @@ from frames import (
     parse_attributes,
 )
 from openni2 import SENSOR_DEPTH, OpenNI2
-from viam.components.camera import Camera, IntrinsicParameters
-from viam.media.video import CameraMimeType, NamedImage
-from viam.proto.app.robot import ComponentConfig
-from viam.proto.common import Geometry, ResourceName, ResponseMetadata
-from viam.resource.base import ResourceBase
-from viam.resource.easy_resource import EasyResource
-from viam.resource.types import Model, ModelFamily
-from viam.utils import ValueTypes, struct_to_dict
 
 _SENSOR_TYPES = {"depth": SENSOR_DEPTH}
 _PREFERRED_FORMATS = {"depth": DEPTH_FORMATS}
@@ -74,7 +74,11 @@ class DabaiMax(Camera, EasyResource):
         **kwargs,
     ) -> Tuple[Sequence[NamedImage], ResponseMetadata]:
         del extra, kwargs
-        requested = [name for name in _IMAGE_NAMES if self._camera is not None and (not filter_source_names or name in filter_source_names)]
+        requested = [
+            name
+            for name in _IMAGE_NAMES
+            if self._camera is not None and (not filter_source_names or name in filter_source_names)
+        ]
         timeout_ms = int((timeout if timeout is not None else 5.0) * 1000)
         loop = asyncio.get_running_loop()
         async with self._lock:
@@ -102,9 +106,7 @@ class DabaiMax(Camera, EasyResource):
 
     async def get_properties(self, *, timeout: Optional[float] = None, **kwargs) -> Camera.Properties:
         del timeout, kwargs
-        mime_types = (
-            [str(CameraMimeType.JPEG), str(CameraMimeType.VIAM_RAW_DEPTH)] if "depth" in self._streams else []
-        )
+        mime_types = [str(CameraMimeType.JPEG), str(CameraMimeType.VIAM_RAW_DEPTH)] if "depth" in self._streams else []
         properties = Camera.Properties(
             supports_pcd=self._intrinsics is not None,
             mime_types=mime_types,
@@ -286,4 +288,3 @@ class DabaiMax(Camera, EasyResource):
             "opened %r, which does not look like a DaBai Max; depth defaults are 640x320 at 10 fps",
             name,
         )
-

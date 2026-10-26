@@ -75,7 +75,9 @@ class OniFrame(ctypes.Structure):
 
 
 class Frame:
-    def __init__(self, data: bytes, width: int, height: int, stride: int, pixel_format: int, timestamp: int, index: int):
+    def __init__(
+        self, data: bytes, width: int, height: int, stride: int, pixel_format: int, timestamp: int, index: int
+    ):
         self.data = data
         self.width = width
         self.height = height
@@ -133,7 +135,9 @@ class OpenNI2:
             raise RuntimeError(f"no OpenNI camera with serial number {serial_number!r} was found")
         if len(devices) > 1:
             names = ", ".join(f"{device['name']} ({device['uri']})" for device in devices)
-            raise RuntimeError(f"multiple OpenNI cameras are connected; set serial_number or device_uri. Found: {names}")
+            raise RuntimeError(
+                f"multiple OpenNI cameras are connected; set serial_number or device_uri. Found: {names}"
+            )
         only = devices[0]
         self._open_uri(str(only["uri"]), str(only["name"]), str(only["vendor"]))
 
@@ -144,7 +148,12 @@ class OpenNI2:
         count = int(info.contents.numSupportedVideoModes)
         modes = info.contents.pSupportedVideoModes
         return [
-            VideoMode(int(modes[index].pixelFormat), int(modes[index].resolutionX), int(modes[index].resolutionY), int(modes[index].fps))
+            VideoMode(
+                int(modes[index].pixelFormat),
+                int(modes[index].resolutionX),
+                int(modes[index].resolutionY),
+                int(modes[index].fps),
+            )
             for index in range(count)
         ]
 
@@ -348,7 +357,12 @@ def _bind(lib: ctypes.CDLL) -> None:
     lib.oniStreamSetProperty.restype = ctypes.c_int
     lib.oniStreamGetProperty.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]
     lib.oniStreamGetProperty.restype = ctypes.c_int
-    lib.oniWaitForAnyStream.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_int, ctypes.POINTER(ctypes.c_int), ctypes.c_int]
+    lib.oniWaitForAnyStream.argtypes = [
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.c_int,
+    ]
     lib.oniWaitForAnyStream.restype = ctypes.c_int
     lib.oniStreamReadFrame.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.POINTER(OniFrame))]
     lib.oniStreamReadFrame.restype = ctypes.c_int

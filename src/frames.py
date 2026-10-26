@@ -150,8 +150,7 @@ def depth_frame_to_mm(data: bytes, width: int, height: int, stride: int, pixel_f
         depth = np.frombuffer(data[:needed], dtype="<u2").reshape(height, width).copy()
     else:
         rows = [
-            np.frombuffer(data[y * row_bytes : y * row_bytes + width * 2], dtype="<u2").copy()
-            for y in range(height)
+            np.frombuffer(data[y * row_bytes : y * row_bytes + width * 2], dtype="<u2").copy() for y in range(height)
         ]
         depth = np.stack(rows)
     if pixel_format == DEPTH_100_UM:
@@ -257,9 +256,7 @@ def _gray_image(data: bytes, width: int, height: int, stride: int, pixel_format:
         if row_bytes == width * 2:
             gray16 = np.frombuffer(data, dtype="<u2", count=width * height).reshape(height, width)
         else:
-            rows = [
-                np.frombuffer(data[y * row_bytes : y * row_bytes + width * 2], dtype="<u2") for y in range(height)
-            ]
+            rows = [np.frombuffer(data[y * row_bytes : y * row_bytes + width * 2], dtype="<u2") for y in range(height)]
             gray16 = np.stack(rows)
         peak = int(gray16.max()) if gray16.size else 1
         peak = max(peak, 1)
@@ -360,6 +357,4 @@ def format_name(pixel_format: int) -> str:
 
 
 def describe_modes(modes: Iterable[VideoMode]) -> str:
-    return ", ".join(
-        f"{mode.width}x{mode.height}@{mode.fps} {format_name(mode.pixel_format)}" for mode in modes
-    )
+    return ", ".join(f"{mode.width}x{mode.height}@{mode.fps} {format_name(mode.pixel_format)}" for mode in modes)
